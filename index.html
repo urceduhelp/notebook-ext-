@@ -83,12 +83,37 @@
     .btn{padding:11px 16px}
     .pager{justify-content:center}
   }
+  input{-webkit-user-select:text; -moz-user-select:text; user-select:text}
+  #gate{
+    position:fixed; inset:0; z-index:100; background:rgba(15,23,42,.75);
+    display:none; align-items:center; justify-content:center; padding:16px;
+  }
+  #gate.show{display:flex}
+  #gate .box{background:#fff; border-radius:14px; padding:22px; width:100%; max-width:380px}
+  #gate h2{margin:0 0 6px; font-size:1.15rem}
+  #gate p{margin:0 0 12px; color:var(--muted); font-size:.92rem}
+  #gate input{width:100%; font:inherit; padding:11px 12px; border:1px solid var(--line); border-radius:8px; margin-bottom:12px}
+  #gate .err{color:#b91c1c; font-size:.88rem; min-height:1.2em; margin:-4px 0 8px}
+  #whoami{font-size:.85rem; opacity:.9; margin-top:4px}
+  #whoami button{background:none; border:0; color:#fff; text-decoration:underline; font:inherit; cursor:pointer; padding:0 4px}
   @media print{ body{display:none !important} }
 </style>
 </head>
 <body>
 
-<header><h1>📚 ඉතිහාස සටහන් පොත</h1></header>
+<header>
+  <h1>📚 ඉතිහාස සටහන් පොත</h1>
+  <div id="whoami"></div>
+</header>
+<div id="gate">
+  <div class="box">
+    <h2>ඔබේ නම ඇතුළත් කරන්න</h2>
+    <p>සටහන් පොත විවෘත කිරීමට නමක් අවශ්‍යයි.</p>
+    <input id="nameInput" type="text" maxlength="60" placeholder="නම" autocomplete="off">
+    <div class="err" id="nameErr"></div>
+    <button class="btn" id="nameBtn" style="width:100%">ඇතුළු වන්න</button>
+  </div>
+</div>
 <nav class="tabs" id="tabs"></nav>
 <main id="panels"></main>
 
@@ -108,7 +133,10 @@ const TABS = [
 ];
 
 /* ================= Copy / Right-click ආරක්ෂණය ================= */
-const stop = e => { e.preventDefault(); e.stopPropagation(); return false; };
+const stop = e => {
+  if (e.target && e.target.tagName === "INPUT") return;   // නම ඇතුළත් කිරීමේ කොටුවට ඉඩ දෙයි
+  e.preventDefault(); e.stopPropagation(); return false;
+};
 ["contextmenu","copy","cut","paste","dragstart","selectstart"].forEach(ev =>
   document.addEventListener(ev, stop, true));
 document.addEventListener("keydown", e => {
@@ -339,7 +367,51 @@ if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => {
   if (tab && tab.type === "data" && state[tab.id]) repaginate();
 });
 
-renderData(TABS[0]);
+/* ================= නම හා පිවිසුම් වාර්තාව ================= */
+const gate = document.getElementById("gate");
+const whoami = document.getElementById("whoami");
+let started = false;
+
+function getName(){ try { return localStorage.getItem("nb_name") || ""; } catch(e){ return ""; } }
+function setName(n){ try { localStorage.setItem("nb_name", n); } catch(e){} }
+
+async function logVisit(name){
+  try { if (sessionStorage.getItem("nb_logged") === name) return; } catch(e){}
+  try {
+    const r = await fetch(`${SUPABASE_URL}/rest/v1/visit_log`, {
+      method:"POST",
+      headers:{ apikey:SUPABASE_KEY, Authorization:"Bearer " + SUPABASE_KEY,
+                "Content-Type":"application/json", Prefer:"return=minimal" },
+      body: JSON.stringify({ user_name:name, user_agent:(navigator.userAgent || "").slice(0,200) })
+    });
+    if (r.ok) { try { sessionStorage.setItem("nb_logged", name); } catch(e){} }
+  } catch(e){}
+}
+
+function enter(name){
+  gate.classList.remove("show");
+  whoami.innerHTML = "";
+  whoami.append("👤 " + name + " ");
+  const b = document.createElement("button");
+  b.textContent = "(නම වෙනස් කරන්න)";
+  b.onclick = () => { document.getElementById("nameInput").value = name; gate.classList.add("show"); };
+  whoami.appendChild(b);
+  logVisit(name);
+  if (!started) { started = true; renderData(TABS[0]); }
+}
+
+function submitName(){
+  const v = document.getElementById("nameInput").value.trim().replace(/\s+/g, " ");
+  if (v.length < 2) { document.getElementById("nameErr").textContent = "නම අකුරු 2කට වඩා විය යුතුයි."; return; }
+  document.getElementById("nameErr").textContent = "";
+  setName(v);
+  enter(v);
+}
+document.getElementById("nameBtn").addEventListener("click", submitName);
+document.getElementById("nameInput").addEventListener("keydown", e => { if (e.key === "Enter") submitName(); });
+
+const savedName = getName();
+if (savedName) enter(savedName); else gate.classList.add("show");
 </script>
 </body>
 </html>
