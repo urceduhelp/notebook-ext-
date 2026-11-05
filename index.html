@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="si">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ඉතිහාස සටහන් පොත</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#f4f6fb; --card:#ffffff; --ink:#1f2937; --muted:#6b7280;
+    --accent:#2f5bea; --accent-soft:#e6ecff; --line:#e5e7eb;
+    --fs:18px; --lh:34px;               /* අකුරු ප්‍රමාණය / පේළි උස */
+  }
+  @media (max-width:600px){ :root{ --fs:16px; --lh:30px; } }
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    font-family:'Noto Sans Sinhala',system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    background:var(--bg); color:var(--ink);
+    -webkit-user-select:none; -moz-user-select:none; -ms-user-select:none; user-select:none;
+    -webkit-touch-callout:none; -webkit-tap-highlight-color:transparent;
+  }
+  header{
+    background:linear-gradient(135deg,#1e3a8a,#2f5bea); color:#fff;
+    padding:18px 16px; text-align:center;
+  }
+  header h1{margin:0; font-size:1.4rem}
+  .tabs{
+    display:flex; gap:6px; overflow-x:auto; padding:10px 12px;
+    background:#fff; border-bottom:1px solid var(--line);
+    position:sticky; top:0; z-index:10; scrollbar-width:thin;
+  }
+  .tab{
+    flex:0 0 auto; border:1px solid var(--line); background:#fff; color:var(--ink);
+    padding:9px 16px; border-radius:999px; cursor:pointer; font:inherit; font-size:.95rem; white-space:nowrap;
+  }
+  .tab.active{background:var(--accent); border-color:var(--accent); color:#fff; font-weight:600}
+  main{max-width:900px; margin:0 auto; padding:14px 12px 60px}
+  .panel{display:none}
+  .panel.active{display:block}
+
+  /* කියවීමේ කොටස: අකුරු පේළි හරියටම 10කට සීමා කර ඇත */
+  .reader{
+    position:relative; background:var(--card); border:1px solid var(--line);
+    border-radius:12px; padding:14px 16px;
+  }
+  .page-text{
+    font-size:var(--fs); line-height:var(--lh);
+    white-space:pre-wrap; overflow-wrap:anywhere; word-break:normal;
+    height:calc(var(--lh) * 10); overflow:hidden;
+  }
+  .page-text b{font-weight:700; color:#1e3a8a; line-height:var(--lh)}
+  .page-text.probe{
+    position:absolute; left:16px; top:14px; visibility:hidden; pointer-events:none;
+    height:auto; overflow:visible;
+  }
+  .pager{
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    margin-top:14px; flex-wrap:wrap;
+  }
+  .pager .info{color:var(--muted); font-size:.9rem}
+  .btn{
+    border:0; background:var(--accent); color:#fff; font:inherit; font-weight:600;
+    padding:11px 22px; border-radius:10px; cursor:pointer;
+  }
+  .btn:disabled{background:#c7cbd6; cursor:not-allowed}
+  .btn.ghost{background:#fff; color:var(--accent); border:1px solid var(--accent)}
+  .btn.ghost:disabled{background:#fff; color:#b8bdc9; border-color:#d5d8e0}
+
+  .status{text-align:center; color:var(--muted); padding:40px 10px}
+  .error{color:#b91c1c}
+
+  .frame-wrap{background:#fff; border:1px solid var(--line); border-radius:12px; overflow:hidden}
+  .frame-wrap iframe{width:100%; height:calc(100vh - 210px); min-height:480px; border:0; display:block}
+  .frame-bar{padding:10px 14px; font-size:.9rem; color:var(--muted); border-top:1px solid var(--line); text-align:center}
+  .frame-bar a{color:var(--accent)}
+
+  @media (max-width:600px){
+    header h1{font-size:1.15rem}
+    .reader{padding:12px}
+    .page-text.probe{left:12px; top:12px}
+    .btn{padding:11px 16px}
+    .pager{justify-content:center}
+  }
+  @media print{ body{display:none !important} }
+</style>
+</head>
+<body>
+
+<header><h1>📚 ඉතිහාස සටහන් පොත</h1></header>
+<nav class="tabs" id="tabs"></nav>
+<main id="panels"></main>
+
+<script>
+/* ================= සැකසුම් ================= */
+const SUPABASE_URL = "https://cfozezblcpyfyzsdjvph.supabase.co";
+const SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImNmb3plemJsY3B5Znl6c2RqdnBoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTE5NTE4NDgsImV4cCI6MjEwNzUyNzg0OH0.SMEcfEw9uuXq9VrsRFzl9pyZub40auLjHWdTJ1iGwdE";
+const TABLE = "history_notes";
+const LINES = 10;   // එකවර තිරයේ පෙන්වන අකුරු පේළි ගණන
+
+const TABS = [
+  { id:"lk",     label:"ශ්‍රී ලංකා ඉතිහාසය", type:"data", cat:"lk" },
+  { id:"europe", label:"යුරෝපා ඉතිහාසය",     type:"data", cat:"europe" },
+  { id:"india",  label:"ඉන්දියා ඉතිහාසය",    type:"data", cat:"india" },
+  { id:"map",    label:"Smart Map",          type:"frame", url:"https://amilaeduhelp.github.io/smart-map/" },
+  { id:"vocab",  label:"වාග් මාලාව",          type:"frame", url:"https://urceduhelp.github.io/vag-malawa/" }
+];
+
+/* ================= Copy / Right-click ආරක්ෂණය ================= */
+const stop = e => { e.preventDefault(); e.stopPropagation(); return false; };
+["contextmenu","copy","cut","paste","dragstart","selectstart"].forEach(ev =>
+  document.addEventListener(ev, stop, true));
+document.addEventListener("keydown", e => {
+  const k = (e.key || "").toLowerCase();
+  const ctrl = e.ctrlKey || e.metaKey;
+  if (e.key === "F12" ||
+      (ctrl && ["c","x","u","s","p","a"].includes(k)) ||
+      (ctrl && e.shiftKey && ["i","j","c"].includes(k))) {
+    e.preventDefault(); e.stopPropagation(); return false;
+  }
+}, true);
+
+/* ================= උපකාරක ================= */
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
+  ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+let allRows = null;
+let activeId = TABS[0].id;
+const state = {};   // tabId -> { tokens, starts:[], ends:[], idx }
+
+async function loadRows(){
+  if (allRows) return allRows;
+  const url = `${SUPABASE_URL}/rest/v1/${TABLE}?select=id,title,content,slug,category,sort_order&order=sort_order.asc,id.asc`;
+  const res = await fetch(url, { headers:{ apikey:SUPABASE_KEY, Authorization:"Bearer " + SUPABASE_KEY } });
+  if (!res.ok) throw new Error("දත්ත ලබා ගැනීමට නොහැකි විය (" + res.status + ")");
+  allRows = await res.json();
+  return allRows;
+}
+
+/* ---------- පෙළ වචන (token) බවට හැරවීම ---------- */
+function buildTokens(rows){
+  const t = [];
+  rows.forEach(r => {
+    String(r.title || "").trim().split(/\s+/).filter(Boolean).forEach(w => t.push({ w, b:true }));
+    t.push({ nl:true });
+    String(r.content || "").split(/\r?\n/).forEach(line => {
+      const ws = line.trim().split(/\s+/).filter(Boolean);
+      if (!ws.length) return;
+      ws.forEach(w => t.push({ w }));
+      t.push({ nl:true });
+    });
+  });
+  return t;
+}
+function toHtml(tokens, a, b){
+  let h = "";
+  for (let i = a; i < b; i++){
+    const k = tokens[i];
+    if (k.nl) h += "\n";
+    else if (k.b) h += "<b>" + esc(k.w) + "</b> ";
+    else h += esc(k.w) + " ";
+  }
+  return h;
+}
+const skipNl = (tokens, i) => { while (i < tokens.length && tokens[i].nl) i++; return i; };
+
+/* ---------- තිරයේ පේළි 10ට ගැළපෙන තෙක් වචන මැනීම ---------- */
+function lineHeightPx(el){ return parseFloat(getComputedStyle(el).lineHeight) || 30; }
+
+function makeFits(probe){
+  const LH = lineHeightPx(probe);
+  return (tokens, a, b) => {
+    probe.innerHTML = toHtml(tokens, a, b);
+    return probe.scrollHeight <= LH * (LINES + 0.5);
+  };
+}
+function findEnd(fits, tokens, a){
+  const N = tokens.length;
+  let lo = 0, hi = Math.min(16, N - a);
+  while (fits(tokens, a, a + hi)) {
+    lo = hi;
+    if (a + hi >= N) return N;
+    hi = Math.min(hi * 2, N - a);
+  }
+  while (hi - lo > 1) {
+    const mid = (lo + hi) >> 1;
+    if (fits(tokens, a, a + mid)) lo = mid; else hi = mid;
+  }
+  return a + Math.max(lo, 1);
+}
+
+/* ---------- UI ---------- */
+const tabsEl = document.getElementById("tabs");
+const panelsEl = document.getElementById("panels");
+
+TABS.forEach((t, i) => {
+  const b = document.createElement("button");
+  b.className = "tab" + (i === 0 ? " active" : "");
+  b.textContent = t.label;
+  b.dataset.id = t.id;
+  b.addEventListener("click", () => activate(t.id));
+  tabsEl.appendChild(b);
+
+  const p = document.createElement("section");
+  p.className = "panel" + (i === 0 ? " active" : "");
+  p.id = "panel-" + t.id;
+  if (t.type === "frame") {
+    p.innerHTML = `
+      <div class="frame-wrap">
+        <iframe data-src="${esc(t.url)}" title="${esc(t.label)}" loading="lazy"></iframe>
+        <div class="frame-bar">පිටුව නොපෙනේ නම් <a href="${esc(t.url)}" target="_blank" rel="noopener">මෙතැනින් නව Tab එකක විවෘත කරන්න</a></div>
+      </div>`;
+  } else {
+    p.innerHTML = `<div class="status">පූරණය වෙමින්...</div>`;
+  }
+  panelsEl.appendChild(p);
+});
+
+function activate(id){
+  activeId = id;
+  document.querySelectorAll(".tab").forEach(b => b.classList.toggle("active", b.dataset.id === id));
+  document.querySelectorAll(".panel").forEach(p => p.classList.toggle("active", p.id === "panel-" + id));
+  const tab = TABS.find(t => t.id === id);
+  if (tab.type === "frame") {
+    const f = document.querySelector(`#panel-${id} iframe`);
+    if (!f.src) f.src = f.dataset.src;
+  } else {
+    renderData(tab);
+  }
+  window.scrollTo({ top:0 });
+}
+
+async function renderData(tab){
+  const panel = document.getElementById("panel-" + tab.id);
+  try { await loadRows(); }
+  catch (err) { panel.innerHTML = `<div class="status error">${esc(err.message)}</div>`; return; }
+  try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch(e){}
+
+  if (!state[tab.id]) {
+    const rows = allRows.filter(r => r.category === tab.cat);
+    state[tab.id] = { tokens: buildTokens(rows), starts:[0], ends:[], idx:0 };
+  }
+  drawPage(tab);
+}
+
+function drawPage(tab){
+  const panel = document.getElementById("panel-" + tab.id);
+  const st = state[tab.id];
+  const tokens = st.tokens;
+
+  if (!tokens.length) {
+    panel.innerHTML = `<div class="status">මෙම කොටසට අදාළ සටහන් නොමැත.</div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="reader">
+      <div class="page-text"></div>
+      <div class="pager">
+        <button class="btn ghost" data-act="prev">← පෙර</button>
+        <span class="info"></span>
+        <button class="btn" data-act="next">ඊළඟ පේළි ${LINES} →</button>
+      </div>
+    </div>`;
+
+  const reader = panel.querySelector(".reader");
+  const textEl = panel.querySelector(".page-text");
+  const probe = textEl.cloneNode(false);
+  probe.classList.add("probe");
+  reader.appendChild(probe);
+  probe.style.width = textEl.clientWidth + "px";
+  const fits = makeFits(probe);
+
+  const endOf = i => {
+    if (st.ends[i] == null) st.ends[i] = findEnd(fits, tokens, st.starts[i]);
+    return st.ends[i];
+  };
+  const startOf = i => {         // i වන පිටුවේ ආරම්භය (නැත්නම් -1)
+    while (st.starts.length <= i) {
+      const last = st.starts.length - 1;
+      const nxt = skipNl(tokens, endOf(last));
+      if (nxt >= tokens.length) return -1;
+      st.starts.push(nxt);
+    }
+    return st.starts[i];
+  };
+
+  const a = startOf(st.idx);
+  const b = endOf(st.idx);
+  textEl.innerHTML = toHtml(tokens, a, b);
+  probe.remove();
+
+  const hasNext = skipNl(tokens, b) < tokens.length;
+  panel.querySelector(".info").textContent = `පිටුව ${st.idx + 1}`;
+  const nextBtn = panel.querySelector('[data-act="next"]');
+  const prevBtn = panel.querySelector('[data-act="prev"]');
+  nextBtn.disabled = !hasNext;
+  prevBtn.disabled = st.idx === 0;
+  nextBtn.addEventListener("click", () => { st.idx++; drawPage(tab); window.scrollTo({ top:0 }); });
+  prevBtn.addEventListener("click", () => { st.idx--; drawPage(tab); window.scrollTo({ top:0 }); });
+}
+
+/* තිර පළල වෙනස් වූ විට (rotate / resize) පිටු නැවත ගණනය කිරීම */
+let lastW = window.innerWidth, rt = null;
+function repaginate(){
+  const tab = TABS.find(t => t.id === activeId);
+  if (!tab || tab.type !== "data") return;
+  const st = state[tab.id];
+  if (!st) return;
+  const keep = st.starts[st.idx] || 0;
+  st.starts = [0]; st.ends = []; st.idx = 0;
+  // වත්මන් පිටුවට අදාළ තැනට පැමිණීම
+  const panel = document.getElementById("panel-" + tab.id);
+  const tmp = document.createElement("div");
+  tmp.className = "page-text probe";
+  const holder = document.createElement("div"); holder.className = "reader";
+  holder.appendChild(tmp); panel.appendChild(holder);
+  tmp.style.width = (panel.clientWidth - 34) + "px";
+  const fits = makeFits(tmp);
+  while (true) {
+    const e = findEnd(fits, st.tokens, st.starts[st.idx]);
+    st.ends[st.idx] = e;
+    if (e > keep) break;
+    const nxt = skipNl(st.tokens, e);
+    if (nxt >= st.tokens.length) break;
+    st.starts.push(nxt); st.idx++;
+  }
+  holder.remove();
+  drawPage(tab);
+}
+window.addEventListener("resize", () => {
+  if (window.innerWidth === lastW) return;   // mobile address bar scroll නොසලකයි
+  lastW = window.innerWidth;
+  clearTimeout(rt); rt = setTimeout(repaginate, 250);
+});
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => {
+  const tab = TABS.find(t => t.id === activeId);
+  if (tab && tab.type === "data" && state[tab.id]) repaginate();
+});
+
+renderData(TABS[0]);
+</script>
+</body>
+</html>
