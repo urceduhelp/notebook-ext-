@@ -194,9 +194,12 @@ const state = {};
 async function loadRows(){
   if (allRows) return allRows;
   const url = `${SUPABASE_URL}/rest/v1/${TABLE}?select=id,title,content,slug,category,sort_order&order=sort_order.asc,id.asc`;
-  const res = await fetch(url, { headers:{ apikey:SUPABASE_KEY, Authorization:"Bearer " + SUPABASE_KEY } });
+  const headers = { apikey:SUPABASE_KEY, Authorization:"Bearer " + SUPABASE_KEY };
+  // සැඟවූ මාතෘකා (hidden = true) ඉවත් කරයි; hidden column එක තවම නැත්නම් පෙරහන නොමැතිව නැවත උත්සාහ කරයි
+  let res = await fetch(url + "&hidden=eq.false", { headers });
+  if (res.status === 400) res = await fetch(url, { headers });
   if (!res.ok) throw new Error("දත්ත ලබා ගැනීමට නොහැකි විය (" + res.status + ")");
-  allRows = await res.json();
+  allRows = (await res.json()).filter(r => r.hidden !== true);
   return allRows;
 }
 const titleOf = (r, i) => String(r.title || "").trim() || ("මාතෘකාව " + (i + 1));
