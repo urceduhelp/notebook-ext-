@@ -40,7 +40,39 @@
   .panel{display:none}
   .panel.active{display:block}
 
-  /* කියවීමේ කොටස: අකුරු පේළි හරියටම 10කට සීමා කර ඇත */
+  /* ===== උපමාතෘකා ලැයිස්තුව ===== */
+  .picker{background:var(--card); border:1px solid var(--line); border-radius:12px; padding:14px 14px 10px}
+  .picker-head{display:flex; align-items:baseline; justify-content:space-between; gap:10px; margin-bottom:10px}
+  .picker-head h2{margin:0; font-size:1.1rem; color:#1e3a8a}
+  .picker-head .count{color:var(--muted); font-size:.85rem; white-space:nowrap}
+  .search{
+    width:100%; font:inherit; font-size:.95rem; padding:10px 12px;
+    border:1px solid var(--line); border-radius:8px; margin-bottom:10px; background:#fafbff;
+  }
+  .search:focus{outline:2px solid var(--accent-soft); border-color:var(--accent)}
+  .tlist{display:flex; flex-direction:column; gap:6px}
+  .titem{
+    display:flex; align-items:center; gap:12px; width:100%; text-align:left;
+    border:1px solid var(--line); background:#fff; color:var(--ink);
+    font:inherit; padding:12px 12px; border-radius:10px; cursor:pointer;
+  }
+  .titem:hover,.titem:focus-visible{border-color:var(--accent); background:var(--accent-soft); outline:none}
+  .titem.last{border-color:var(--accent)}
+  .titem .no{
+    flex:0 0 auto; min-width:30px; height:30px; padding:0 6px; display:inline-flex;
+    align-items:center; justify-content:center; border-radius:8px;
+    background:var(--accent-soft); color:var(--accent); font-weight:700; font-size:.85rem;
+  }
+  .titem .tt{flex:1; line-height:1.5}
+  .titem .chev{color:var(--muted); font-size:1.3rem}
+
+  /* ===== කියවීමේ කොටස: අකුරු පේළි හරියටම 10කට සීමා කර ඇත ===== */
+  .reader-top{display:flex; gap:8px; align-items:center; margin-bottom:10px}
+  .reader-top .jump{
+    flex:1; min-width:0; font:inherit; font-size:.92rem; padding:10px 10px;
+    border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--ink);
+  }
+  .btn.small{padding:10px 14px; font-size:.92rem; white-space:nowrap}
   .reader{
     position:relative; background:var(--card); border:1px solid var(--line);
     border-radius:12px; padding:14px 16px;
@@ -134,7 +166,7 @@ const TABS = [
 
 /* ================= Copy / Right-click ආරක්ෂණය ================= */
 const stop = e => {
-  if (e.target && e.target.tagName === "INPUT") return;   // නම ඇතුළත් කිරීමේ කොටුවට ඉඩ දෙයි
+  if (e.target && e.target.tagName === "INPUT") return;   // ආදාන කොටුවලට ඉඩ දෙයි
   e.preventDefault(); e.stopPropagation(); return false;
 };
 ["contextmenu","copy","cut","paste","dragstart","selectstart"].forEach(ev =>
@@ -155,7 +187,9 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c =>
 
 let allRows = null;
 let activeId = TABS[0].id;
-const state = {};   // tabId -> { tokens, starts:[], ends:[], idx }
+/* tabId -> { rows, sel, last, tokens, starts, ends, idx }
+   sel = තෝරාගත් උපමාතෘකාවේ index (null නම් ලැයිස්තුව පෙන්වයි) */
+const state = {};
 
 async function loadRows(){
   if (allRows) return allRows;
@@ -165,6 +199,7 @@ async function loadRows(){
   allRows = await res.json();
   return allRows;
 }
+const titleOf = (r, i) => String(r.title || "").trim() || ("මාතෘකාව " + (i + 1));
 
 /* ---------- පෙළ වචන (token) බවට හැරවීම ---------- */
 function buildTokens(rows){
@@ -266,10 +301,67 @@ async function renderData(tab){
   try { if (document.fonts && document.fonts.ready) await document.fonts.ready; } catch(e){}
 
   if (!state[tab.id]) {
-    const rows = allRows.filter(r => r.category === tab.cat);
-    state[tab.id] = { tokens: buildTokens(rows), starts:[0], ends:[], idx:0 };
+    state[tab.id] = {
+      rows: allRows.filter(r => r.category === tab.cat),
+      sel: null, last: null, tokens: [], starts:[0], ends:[], idx:0
+    };
   }
+  if (state[tab.id].sel === null) drawList(tab); else drawPage(tab);
+}
+
+/* ---------- 2 වන පියවර: උපමාතෘකා ලැයිස්තුව ---------- */
+function drawList(tab){
+  const panel = document.getElementById("panel-" + tab.id);
+  const st = state[tab.id];
+
+  if (!st.rows.length) {
+    panel.innerHTML = `<div class="status">මෙම කොටසට අදාළ සටහන් නොමැත.</div>`;
+    return;
+  }
+
+  panel.innerHTML = `
+    <div class="picker">
+      <div class="picker-head">
+        <h2>${esc(tab.label)} – උපමාතෘකා</h2>
+        <span class="count">මාතෘකා ${st.rows.length}ක්</span>
+      </div>
+      <input class="search" type="search" placeholder="මාතෘකාවක් සොයන්න..." autocomplete="off">
+      <div class="tlist"></div>
+    </div>`;
+
+  const list = panel.querySelector(".tlist");
+  const paint = q => {
+    list.innerHTML = "";
+    let n = 0;
+    st.rows.forEach((r, i) => {
+      const t = titleOf(r, i);
+      if (q && !t.toLowerCase().includes(q)) return;
+      n++;
+      const b = document.createElement("button");
+      b.className = "titem" + (i === st.last ? " last" : "");
+      b.innerHTML = `<span class="no">${i + 1}</span><span class="tt">${esc(t)}</span><span class="chev">›</span>`;
+      b.addEventListener("click", () => openTopic(tab, i));
+      list.appendChild(b);
+    });
+    if (!n) list.innerHTML = `<div class="status">ගැළපෙන මාතෘකා නැත.</div>`;
+  };
+  paint("");
+  panel.querySelector(".search").addEventListener("input", e => paint(e.target.value.trim().toLowerCase()));
+}
+
+/* ---------- 3 වන පියවර: තෝරාගත් මාතෘකාව විවෘත කිරීම ---------- */
+function openTopic(tab, i){
+  const st = state[tab.id];
+  st.sel = st.last = i;
+  st.tokens = buildTokens([st.rows[i]]);
+  st.starts = [0]; st.ends = []; st.idx = 0;
   drawPage(tab);
+  window.scrollTo({ top:0 });
+}
+function backToList(tab){
+  state[tab.id].sel = null;
+  drawList(tab);
+  window.scrollTo({ top:0 });
 }
 
 function drawPage(tab){
@@ -277,12 +369,14 @@ function drawPage(tab){
   const st = state[tab.id];
   const tokens = st.tokens;
 
-  if (!tokens.length) {
-    panel.innerHTML = `<div class="status">මෙම කොටසට අදාළ සටහන් නොමැත.</div>`;
-    return;
-  }
+  const opts = st.rows.map((r, i) =>
+    `<option value="${i}"${i === st.sel ? " selected" : ""}>${i + 1}. ${esc(titleOf(r, i))}</option>`).join("");
 
   panel.innerHTML = `
+    <div class="reader-top">
+      <button class="btn ghost small" data-act="back">☰ උපමාතෘකා</button>
+      <select class="jump" aria-label="වෙනත් මාතෘකාවකට මාරු වන්න">${opts}</select>
+    </div>
     <div class="reader">
       <div class="page-text"></div>
       <div class="pager">
@@ -291,6 +385,9 @@ function drawPage(tab){
         <button class="btn" data-act="next">ඊළඟ පේළි ${LINES} →</button>
       </div>
     </div>`;
+
+  panel.querySelector('[data-act="back"]').addEventListener("click", () => backToList(tab));
+  panel.querySelector(".jump").addEventListener("change", e => openTopic(tab, +e.target.value));
 
   const reader = panel.querySelector(".reader");
   const textEl = panel.querySelector(".page-text");
@@ -304,7 +401,7 @@ function drawPage(tab){
     if (st.ends[i] == null) st.ends[i] = findEnd(fits, tokens, st.starts[i]);
     return st.ends[i];
   };
-  const startOf = i => {         // i වන පිටුවේ ආරම්භය (නැත්නම් -1)
+  const startOf = i => {
     while (st.starts.length <= i) {
       const last = st.starts.length - 1;
       const nxt = skipNl(tokens, endOf(last));
@@ -320,12 +417,20 @@ function drawPage(tab){
   probe.remove();
 
   const hasNext = skipNl(tokens, b) < tokens.length;
+  const hasNextTopic = st.sel < st.rows.length - 1;
   panel.querySelector(".info").textContent = `පිටුව ${st.idx + 1}`;
   const nextBtn = panel.querySelector('[data-act="next"]');
   const prevBtn = panel.querySelector('[data-act="prev"]');
-  nextBtn.disabled = !hasNext;
   prevBtn.disabled = st.idx === 0;
-  nextBtn.addEventListener("click", () => { st.idx++; drawPage(tab); window.scrollTo({ top:0 }); });
+
+  if (hasNext) {
+    nextBtn.addEventListener("click", () => { st.idx++; drawPage(tab); window.scrollTo({ top:0 }); });
+  } else if (hasNextTopic) {
+    nextBtn.textContent = "ඊළඟ මාතෘකාව →";
+    nextBtn.addEventListener("click", () => openTopic(tab, st.sel + 1));
+  } else {
+    nextBtn.disabled = true;
+  }
   prevBtn.addEventListener("click", () => { st.idx--; drawPage(tab); window.scrollTo({ top:0 }); });
 }
 
@@ -335,10 +440,9 @@ function repaginate(){
   const tab = TABS.find(t => t.id === activeId);
   if (!tab || tab.type !== "data") return;
   const st = state[tab.id];
-  if (!st) return;
+  if (!st || st.sel === null) return;
   const keep = st.starts[st.idx] || 0;
   st.starts = [0]; st.ends = []; st.idx = 0;
-  // වත්මන් පිටුවට අදාළ තැනට පැමිණීම
   const panel = document.getElementById("panel-" + tab.id);
   const tmp = document.createElement("div");
   tmp.className = "page-text probe";
@@ -364,7 +468,7 @@ window.addEventListener("resize", () => {
 });
 if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => {
   const tab = TABS.find(t => t.id === activeId);
-  if (tab && tab.type === "data" && state[tab.id]) repaginate();
+  if (tab && tab.type === "data" && state[tab.id] && state[tab.id].sel !== null) repaginate();
 });
 
 /* ================= නම හා පිවිසුම් වාර්තාව ================= */
