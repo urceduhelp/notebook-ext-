@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>අමිල උඩවත්ත - ඉතිහාස සටහන් පොත</title>
+<title>ඉතිහාස සටහන් පොත</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Sinhala:wght@400;600;700&display=swap" rel="stylesheet">
 <style>
@@ -100,6 +100,14 @@
   .btn.ghost{background:#fff; color:var(--accent); border:1px solid var(--accent)}
   .btn.ghost:disabled{background:#fff; color:#b8bdc9; border-color:#d5d8e0}
 
+  /* ===== ගොනු / සබැඳි ටැබ් (ප්‍රශ්නපත්‍ර, සිතියම්, Marking Scheme) ===== */
+  .grp-head{display:flex; justify-content:space-between; gap:10px; margin:16px 0 8px; padding-bottom:4px;
+    font-weight:700; color:#1e3a8a; border-bottom:2px solid var(--accent-soft)}
+  .grp-head:first-of-type{margin-top:2px}
+  .grp-head span{color:var(--muted); font-weight:400; font-size:.85rem}
+  .grp-empty{color:var(--muted); font-size:.9rem; padding:6px 2px 2px}
+  .viewer-top{display:flex; gap:10px; align-items:center; margin-bottom:10px}
+  .viewer-top .vt{flex:1; min-width:0; font-weight:600; line-height:1.4}
   .status{text-align:center; color:var(--muted); padding:40px 10px}
   .error{color:#b91c1c}
 
@@ -134,7 +142,7 @@
 <body>
 
 <header>
-  <h1>📚අමිල උඩවත්ත - ඉතිහාස සටහන් පොත</h1>
+  <h1>📚 ඉතිහාස සටහන් පොත</h1>
   <div id="whoami"></div>
 </header>
 <div id="gate">
@@ -161,7 +169,17 @@ const TABS = [
   { id:"europe", label:"යුරෝපා ඉතිහාසය",     type:"data", cat:"europe" },
   { id:"india",  label:"ඉන්දියා ඉතිහාසය",    type:"data", cat:"india" },
   { id:"map",    label:"Smart Map",          type:"frame", url:"https://amilaeduhelp.github.io/smart-map/" },
-  { id:"vocab",  label:"වාග් මාලාව",          type:"frame", url:"https://urceduhelp.github.io/vag-malawa/" }
+  { id:"vocab",  label:"වාග් මාලාව",          type:"frame", url:"https://urceduhelp.github.io/vag-malawa/" },
+
+  /* ගොනු ටැබ්: ප්‍රශ්නපත්‍ර / සිතියම් Admin පිටුවෙන් (history_resources) එකතු කරයි.
+     kind: papers = පැරණි ප්‍රශ්නපත්‍ර, marking = Marking Scheme, maps = හිස් සිතියම් */
+  { id:"papers", label:"පැරණි ප්‍රශ්නපත්‍ර", type:"files", groups:[
+      { kind:"papers", title:"පැරණි ප්‍රශ්නපත්‍ර" }
+  ] },
+  { id:"maps", label:"හිස් සිතියම් හා Marking Scheme", type:"files", groups:[
+      { kind:"maps",    title:"හිස් සිතියම්" },
+      { kind:"marking", title:"Marking Scheme" }
+  ] }
 ];
 
 /* ================= Copy / Right-click ආරක්ෂණය ================= */
@@ -277,7 +295,7 @@ TABS.forEach((t, i) => {
         <iframe data-src="${esc(t.url)}" title="${esc(t.label)}" loading="lazy"></iframe>
         <div class="frame-bar">පිටුව නොපෙනේ නම් <a href="${esc(t.url)}" target="_blank" rel="noopener">මෙතැනින් නව Tab එකක විවෘත කරන්න</a></div>
       </div>`;
-  } else {
+  } else if (t.type === "data") {
     p.innerHTML = `<div class="status">පූරණය වෙමින්...</div>`;
   }
   panelsEl.appendChild(p);
@@ -291,6 +309,8 @@ function activate(id){
   if (tab.type === "frame") {
     const f = document.querySelector(`#panel-${id} iframe`);
     if (!f.src) f.src = f.dataset.src;
+  } else if (tab.type === "files") {
+    drawFiles(tab);
   } else {
     renderData(tab);
   }
@@ -435,6 +455,85 @@ function drawPage(tab){
     nextBtn.disabled = true;
   }
   prevBtn.addEventListener("click", () => { st.idx--; drawPage(tab); window.scrollTo({ top:0 }); });
+}
+
+/* ---------- ගොනු ටැබ්: ලැයිස්තුව → තෝරාගත් ගොනුව බැලීම ---------- */
+const fileSel = {};   // tabId -> තෝරාගත් අයිතමය (null නම් ලැයිස්තුව)
+let resRows = null;
+
+async function loadResources(){
+  if (resRows) return resRows;
+  const url = `${SUPABASE_URL}/rest/v1/history_resources?select=id,kind,year,title,url,sort_order&order=sort_order.asc,id.asc&limit=1000`;
+  const res = await fetch(url, { headers:{ apikey:SUPABASE_KEY, Authorization:"Bearer " + SUPABASE_KEY } });
+  if (!res.ok) throw new Error("ගොනු ලබා ගැනීමට නොහැකි විය (" + res.status + ")");
+  resRows = (await res.json()).filter(r => /^https?:\/\//i.test(r.url || ""));
+  return resRows;
+}
+const resLabel = r => r.year ? `${r.year} – ${r.title}` : r.title;
+/* ප්‍රශ්නපත්‍ර / Marking Scheme: අලුත්ම වර්ෂය මුලින්; සිතියම්: Admin දුන් පිළිවෙළට */
+function resOfKind(kind){
+  return resRows.filter(r => r.kind === kind).sort((a, b) => {
+    if (kind !== "maps") {
+      const ya = parseInt(a.year) || 0, yb = parseInt(b.year) || 0;
+      if (ya !== yb) return yb - ya;
+    }
+    return (a.sort_order ?? 1e9) - (b.sort_order ?? 1e9) || a.id - b.id;
+  });
+}
+
+async function drawFiles(tab){
+  const panel = document.getElementById("panel-" + tab.id);
+  const sel = fileSel[tab.id];
+  if (sel) return drawFileViewer(tab, panel, sel);
+
+  panel.innerHTML = `<div class="status">පූරණය වෙමින්...</div>`;
+  try { await loadResources(); }
+  catch (err) { panel.innerHTML = `<div class="status error">${esc(err.message)}</div>`; return; }
+  if (fileSel[tab.id]) return;     // අතරතුර වෙනත් අයිතමයක් විවෘත වී ඇත්නම්
+
+  const groups = tab.groups.map(g => ({ g, items: resOfKind(g.kind) }));
+  panel.innerHTML = `<div class="picker"></div>`;
+  const box = panel.querySelector(".picker");
+  if (!groups.some(x => x.items.length)) {
+    box.innerHTML = `<div class="status">මෙම කොටසට ගොනු තවම එකතු කර නැත.</div>`;
+    return;
+  }
+  groups.forEach(({ g, items }) => {
+    const h = document.createElement("div"); h.className = "grp-head";
+    h.append(g.title);
+    const c = document.createElement("span"); c.textContent = items.length + "ක්"; h.appendChild(c);
+    box.appendChild(h);
+    if (!items.length) {
+      const e = document.createElement("div"); e.className = "grp-empty"; e.textContent = "තවම එකතු කර නැත.";
+      box.appendChild(e); return;
+    }
+    const list = document.createElement("div"); list.className = "tlist";
+    items.forEach((r, i) => {
+      const b = document.createElement("button"); b.className = "titem";
+      b.innerHTML = `<span class="no">${i + 1}</span><span class="tt">${esc(resLabel(r))}</span><span class="chev">›</span>`;
+      b.addEventListener("click", () => {
+        fileSel[tab.id] = { title: resLabel(r), url: r.url };
+        drawFiles(tab); window.scrollTo({ top:0 });
+      });
+      list.appendChild(b);
+    });
+    box.appendChild(list);
+  });
+}
+
+function drawFileViewer(tab, panel, item){
+  panel.innerHTML = `
+    <div class="viewer-top">
+      <button class="btn ghost small" data-act="back">← ලැයිස්තුව</button>
+      <div class="vt">${esc(item.title)}</div>
+    </div>
+    <div class="frame-wrap">
+      <iframe src="${esc(item.url)}" title="${esc(item.title)}"></iframe>
+      <div class="frame-bar">පිටුව නොපෙනේ නම් <a href="${esc(item.url)}" target="_blank" rel="noopener">මෙතැනින් නව Tab එකක විවෘත කරන්න</a></div>
+    </div>`;
+  panel.querySelector('[data-act="back"]').addEventListener("click", () => {
+    fileSel[tab.id] = null; drawFiles(tab); window.scrollTo({ top:0 });
+  });
 }
 
 /* තිර පළල වෙනස් වූ විට (rotate / resize) පිටු නැවත ගණනය කිරීම */
